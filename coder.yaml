@@ -36,7 +36,7 @@ spec:
     - .spec.template.spec.volumes[] | select(.name == "etc-ssl-certs")
   source:
     targetRevision: "2.20.0"
-    repoURL: https://helm.coder.com/v2
+    repoURL: "https://offline-chart-museum.local"
     chart: coder
     helm:
       values: |
