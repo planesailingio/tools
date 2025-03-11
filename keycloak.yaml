@@ -39,7 +39,8 @@ spec:
     helm:
       values: |
         global:
-          imageRegistry: registry.local
+
+          imageRegistry: offlineregistry.local
           storageClass: standard
         ingress:
           enabled: true
