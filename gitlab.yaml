@@ -9,6 +9,12 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: core-gitlab-runners
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/argocd-gitlab.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
   name: core-gitlab
 ---
 # Source: gitlab-bespoke-pack/templates/gitlab/argocd-gitlab.yaml
