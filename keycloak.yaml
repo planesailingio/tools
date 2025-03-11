@@ -41,6 +41,8 @@ spec:
         global:
 
           imageRegistry: offlineregistry.local
+          security:
+            allowInsecureImages: true
           storageClass: standard
         ingress:
           enabled: true
