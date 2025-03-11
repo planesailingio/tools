@@ -34,7 +34,7 @@ spec:
     - .spec.template.spec.volumes[] | select(.name == "etc-ssl-certs")
   source:
     targetRevision: "24.4.11"
-    repoURL: https://charts.bitnami.com/bitnami
+    repoURL: https://offline-chart-museum.local
     chart: keycloak
     helm:
       values: |
@@ -80,12 +80,30 @@ spec:
           existingSecretPasswordKey: password
         logging:
           output: json
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 5s
+        factor: 1
+        maxDuration: 30s
+      limit: 50
+    syncOptions:
+    - CreateNamespace=false
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true
+    - ServerSideApply=true
+    - Replace=false
 ---
 # Source: keycloak/templates/databases-psql.yaml
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: psql-keycloak
+  namespace: core-keycloak
 spec:
   instances: 1
   imageCatalogRef:

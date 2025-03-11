@@ -73,6 +73,23 @@ spec:
                 key: uri
           image:
             repo: coder/coder
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 5s
+        factor: 1
+        maxDuration: 30s
+      limit: 50
+    syncOptions:
+    - CreateNamespace=false
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true
+    - ServerSideApply=true
+    - Replace=false
 ---
 # Source: coder/templates/databases-psql.yaml
 apiVersion: postgresql.cnpg.io/v1

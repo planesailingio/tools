@@ -763,6 +763,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: psql-gitlab-main
+  namespace: core-gitlab
 spec:
   instances: 1
   imageCatalogRef:
@@ -787,6 +788,7 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: psql-gitlab-praefect
+  namespace: core-gitlab
 spec:
   instances: 1
   imageCatalogRef:
