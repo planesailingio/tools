@@ -36,7 +36,7 @@ spec:
     - .spec.template.spec.volumes[] | select(.name == "etc-ssl-certs")
   source:
     targetRevision: "8.9.1"
-    repoURL: https://charts.gitlab.io
+    repoURL: https://offline-chart-museum.local
     chart: gitlab
     helm:
       values: |
@@ -81,14 +81,21 @@ spec:
             port: 6379
             password:
               enabled: false
+          workhorse:
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-workhorse-ee
           gitaly:
             enabled: true
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitaly
           praefect:
             enabled: true
             logging:
               level: info
               format: json
             replaceInternalGitaly: true
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitaly
             tls:
               enabled: false
             metrics:
@@ -483,6 +490,8 @@ spec:
 
           pages:
             enabled: true
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-pages
             accessControl: false
             https: true
             objectStore:
@@ -541,6 +550,15 @@ spec:
           serviceAccount:
             enabled: true
             create: true
+          certificates:
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/certificates
+          kubectl:
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/kubectl
+          gitlabBase:
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-base
           # priorityClassName: system-cluster-critical
         upgradeCheck:
           enabled: false
@@ -566,8 +584,13 @@ spec:
           enabled: false
         shared-secrets:
           enabled: true
+          selfsign:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/cfssl-self-sign
         gitlab-runner:
           install: true #
+          image:
+            registry: offlineregistry.local
           gitlabUrl: http://gitlab-webservice-default.workflows-ingest:8080
           replicas: 1
           # serviceAccountName:
@@ -585,8 +608,8 @@ spec:
                 check_interval = 1
                 [runners.kubernetes]
                   namespace = "gitlab-runners"
-                  image = "ubuntu:24.04"
-                  helper_image = "ubuntu:24.04"
+                  image = "offlineregistry.local/ubuntu:24.04"
+                  helper_image = "offlineregistry.local/ubuntu:24.04"
                   pull_policy = "if-not-present"
                   poll_interval = 1
                 [runners.cache]
@@ -613,15 +636,58 @@ spec:
         ## Note: Many of these settings are configurable via globals
 
         gitlab:
+          gitaly:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitaly
+            cgroups:
+              initContainer:
+                image:
+                  repository: offlineregistry.local/gitlab-org/build/cng/gitaly-init-cgroups
+          gitlab-shell:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-shell
+          gitlab-exporter:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-exporter
+          gitlab-pages:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-pages
+          migrations:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-toolbox-ee
+          praefect:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitaly
+          enterpriseImages:
+            migrations:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-toolbox-ee
+            sidekiq:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-sidekiq-ee
+            toolbox:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-toolbox-ee
+            webservice:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-webservice-ee
+            workhorse:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-workhorse-ee
+            geo-logcursor:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-geo-logcursor
           webservice:
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-webservice-ee
+            workhorse:
+              image: offlineregistry.local/gitlab-org/build/cng/gitlab-workhorse-ee
             registry:
               enabled: false
           sidekiq:
+            image: 
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-sidekiq-ee
             registry:
               enabled: false
 
           ## https://docs.gitlab.com/charts/charts/gitlab/toolbox
           toolbox:
+            image:
+              repository: offlineregistry.local/gitlab-org/build/cng/gitlab-toolbox-ee
 
             registry:
               enabled: false
@@ -746,7 +812,7 @@ spec:
     runAsUser: 1000
     fsGroup: 1000
   kubernetesConfig:
-    image: quay.io/opstree/redis:v7.2.7
+    image: offlineregistry.local/opstree/redis:v7.2.7
     imagePullPolicy: IfNotPresent
     resources:
       requests:
@@ -757,7 +823,7 @@ spec:
         memory: 128Mi
   redisExporter:
     enabled: true
-    image: quay.io/opstree/redis-exporter:v1.44.0
+    image: offlineregistry.local/opstree/redis-exporter:v1.44.0
     imagePullPolicy: IfNotPresent
     resources:
       requests:
