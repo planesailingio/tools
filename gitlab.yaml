@@ -1,0 +1,776 @@
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/argocd-gitlab.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd-gitlab
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/argocd-gitlab.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: core-gitlab
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/argocd-gitlab.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-app
+  namespace: argocd-gitlab
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  destination:
+    namespace: core-gitlab
+    server: https://kubernetes.default.svc
+  project: core-apps
+  ignoreDifferences:
+  - group: apps
+    kind: StatefulSet
+    jqPathExpressions:
+    - .spec.template.spec.volumeMounts[] | select(.name == "etc-ssl-certs")
+  - group: apps
+    kind: Deployment
+    jqPathExpressions:
+    - .spec.template.spec.containers[].volumeMounts[] | select(.name == "etc-ssl-certs")
+    - .spec.template.spec.volumes[] | select(.name == "etc-ssl-certs")
+  source:
+    targetRevision: "8.9.1"
+    repoURL: https://charts.gitlab.io
+    chart: gitlab
+    helm:
+      values: |
+        # ARGOCD VALUES GITLAB
+        global:
+          edition: ee
+          hosts:
+            domain: 
+            https: true
+            gitlab:
+              name: gitlab
+              https: true
+            pages:
+              name: pages
+              https: true
+          ## https://docs.gitlab.com/charts/charts/globals#configure-ingress-settings
+          ingress:
+            configureCertmanager: false
+            class: nginx
+            provider: nginx
+            annotations:
+              kubernetes.io/tls-acme: "true"
+              cert-manager.io/cluster-issuer: pki
+            enabled: true
+            tls:
+              enabled: true
+          # Override the API version to use for HorizontalPodAutoscaler
+          monitoring:
+            enabled: true
+          psql:
+            host: psql-gitlab-main-rw
+            database: gitlab
+            port: 5432
+            username: app
+            password:
+              useSecret: true
+              secret: psql-gitlab-main-app
+              key: password
+          ## https://docs.gitlab.com/charts/charts/globals#configure-redis-settings
+          redis:
+            host: redis-gitlab-main
+            port: 6379
+            password:
+              enabled: false
+          gitaly:
+            enabled: true
+          praefect:
+            enabled: true
+            logging:
+              level: info
+              format: json
+            replaceInternalGitaly: true
+            tls:
+              enabled: false
+            metrics:
+              enabled: true
+              serviceMonitor:
+                enabled: true
+            virtualStorages:
+              - name: default
+                gitalyReplicas: 3
+                maxUnavailable: 1
+                defaultReplicationFactor: 3
+                persistence:
+                  enabled: true
+                  size: "10Gi"
+                  accessMode: ReadWriteOnce
+                  storageClass: "standard"
+
+            psql:
+              host: psql-gitlab-praefect-rw
+              database: praefect
+              port: 5432
+              user: app
+            dbSecret:
+              secret: psql-gitlab-praefect-app
+              key: password
+            affinity:
+              podAntiAffinity:
+                topologyKey: kubernetes.io/hostname
+
+          minio:
+            enabled: false
+              # secret:
+
+          ## https://docs.gitlab.com/charts/charts/globals#configure-grafana-integration
+          grafana:
+            enabled: false
+
+          ## https://docs.gitlab.com/charts/charts/globals#configure-appconfig-settings
+          ## Rails based portions of this chart share many settings
+
+          appConfig:
+            enableUsagePing: false
+            enableSeatLink: false
+            enableImpersonation: false
+            applicationSettingsCacheSeconds: 60
+            defaultCanCreateGroup: false
+            usernameChangingEnabled: false
+            issueClosingPattern:
+            defaultTheme: 11
+            defaultProjectsFeatures:
+              issues: false
+              mergeRequests: true
+              wiki: false
+              snippets: true
+              builds: true
+              containerRegistry: false
+            webhookTimeout:
+            maxRequestDurationSeconds:
+            ## https://docs.gitlab.com/charts/charts/globals#cron-jobs-related-settings
+            cron_jobs:
+              ## Flag stuck CI builds as failed
+              stuck_ci_jobs_worker:
+                cron: "1 * * * *"
+              ## Schedule pipelines in the near future
+              pipeline_schedule_worker:
+                cron: "19 * * * *"
+              ## Remove expired build artifacts
+              expire_build_artifacts_worker:
+                cron: "*/7 * * * *"
+              ## Periodically run 'git fsck' on all repositories.
+              repository_check_worker:
+                cron: "20 * * * *"
+              ## Send admin emails once a week
+              # admin_email_worker:
+              #   cron: "0 0 * * 0"
+              ## Remove outdated repository archives
+              repository_archive_cache_worker:
+                cron: "0 * * * *"
+              ## Verify custom GitLab Pages domains
+              pages_domain_verification_cron_worker:
+                cron: "*/15 * * * *"
+              schedule_migrate_external_diffs_worker:
+                cron: "15 * * * *"
+              ## Prune stale group runners on opted-in namespaces
+              ci_runners_stale_group_runners_prune_worker_cron:
+                cron: "30 * * * *"
+              ## Periodically update ci_runner_versions table with up-to-date versions and status
+              ci_runner_versions_reconciliation_worker:
+                cron: "@daily"
+              ## Periodically clean up stale ci_runner_machines records
+              ci_runners_stale_machines_cleanup_worker:
+                cron: "36 4 * * *"
+              ### GitLab Geo
+              # Geo Primary only!
+              # geo_prune_event_log_worker:
+              #   cron: "*/5 * * * *"
+              ## GitLab Geo repository sync worker
+              # geo_repository_sync_worker:
+              #   cron: "*/5 * * * *"
+              ## GitLab Geo file download dispatch worker
+              # geo_file_download_dispatch_worker:
+              #  cron: "*/10 * * * *"
+              ## GitLab Geo repository verification primary batch worker
+              # geo_repository_verification_primary_batch_worker:
+              #   cron: "*/5 * * * *"
+              ## GitLab Geo repository verification secondary scheduler worker
+              # geo_repository_verification_secondary_scheduler_worker:
+              #   cron: "*/5 * * * *"
+              ## GitLab Geo migrated local files clean up worker
+              # geo_migrated_local_files_clean_up_worker:
+              #   cron: "15 */6 * * *"
+              ### LDAP
+              ldap_sync_worker:
+                cron: "0/15 * * * *"
+              ldap_group_sync_worker:
+                cron: "0/15 * * * *"
+              ### Snapshot active user statistics
+              historical_data_worker:
+                cron: "0 12 * * *"
+              loose_foreign_keys_cleanup_worker_cron:
+                cron: "*/5 * * * *"
+
+            ## https://docs.gitlab.com/charts/charts/globals#content-security-policy
+            # contentSecurityPolicy:
+            #   enabled: false
+            #   report_only: true
+            #   # directives: {}
+
+            ## https://docs.gitlab.com/charts/charts/globals#gravatarlibravatar-settings
+            # gravatar:
+            #   plainUrl:
+            #   sslUrl:
+
+            ## https://docs.gitlab.com/charts/charts/globals#hooking-analytics-services-to-the-gitlab-instance
+            # extra:
+            #   googleAnalyticsId:
+            #   matomoUrl:
+            #   matomoSiteId:
+            #   matomoDisableCookies:
+            #   oneTrustId:
+            #   googleTagManagerNonceId:
+            #   bizible:
+
+            ## https://docs.gitlab.com/charts/charts/globals#lfs-artifacts-uploads-packages-external-mr-diffs-and-dependency-proxy
+            object_store:
+              enabled: true
+              proxy_download: true
+              connection:
+                secret: gitlab-s3-storage-credentials
+                key: connection
+
+              storage_options: {}
+                # server_side_encryption:
+                # server_side_encryption_kms_key_id
+            lfs:
+              enabled: true
+              proxy_download: true
+              bucket: gitlab-lfs
+
+            artifacts:
+              enabled: true
+              proxy_download: true
+              bucket: gitlab-artifacts
+
+            uploads:
+              enabled: true
+              proxy_download: true
+              bucket: gitlab-uploads
+
+            packages:
+              enabled: true
+              proxy_download: true
+              bucket: gitlab-packages
+
+            externalDiffs:
+              enabled: false
+              proxy_download: true
+              bucket: gitlab-mr-diffs
+
+            terraformState:
+              enabled: true
+              bucket: gitlab-terraform-state
+
+            # ciSecureFiles:
+            #   enabled: true
+            #   bucket: gitlab-ci-secure-files
+            #   connection:
+            #     secret: gitlab-s3-storage-credentials
+            #     key: connection
+
+            dependencyProxy:
+              enabled: false
+              proxy_download: false
+              bucket: gitlab-dependency-proxy
+
+            backups:
+              enabled: true
+              bucket: gitlab-backups
+              tmpBucket: tmp
+
+
+            ## https://docs.gitlab.com/charts/charts/globals#outgoing-email
+            ## Microsoft Graph Mailer settings
+            # microsoft_graph_mailer:
+            #   enabled: false
+            #   user_id: ""
+            #   tenant: ""
+            #   client_id: ""
+            #   client_secret:
+            #     secret: ""
+            #     key: secret
+            #   azure_ad_endpoint: "https://login.microsoftonline.com"
+            #   graph_endpoint: "https://graph.microsoft.com"
+
+            ## https://docs.gitlab.com/charts/installation/command-line-options.html#incoming-email-configuration
+            ## https://docs.gitlab.com/charts/charts/gitlab/mailroom/index.html#incoming-email
+            # incomingEmail:
+            #   enabled: false
+            #   address: ""
+            #   host: "imap.gmail.com"
+            #   port: 993
+            #   ssl: true
+            #   startTls: false
+            #   user: ""
+            #   password:
+            #     secret: ""
+            #     key: password
+            #   deleteAfterDelivery: true
+            #   expungeDeleted: false
+            #   logger:
+            #     logPath: "/dev/stdout"
+            #   mailbox: inbox
+            #   idleTimeout: 60
+            #   inboxMethod: "imap"
+            #   clientSecret:
+            #     key: secret
+            #   pollInterval: 60
+            #   deliveryMethod: webhook
+            #   authToken: {}
+            #     # secret:
+            #     # key:
+
+            ## https://docs.gitlab.com/charts/charts/gitlab/mailroom/index.html#service-desk-email
+            # serviceDeskEmail:
+            #   enabled: false
+            #   address: ""
+            #   host: "imap.gmail.com"
+            #   port: 993
+            #   ssl: true
+            #   startTls: false
+            #   user: ""
+            #   password:
+            #     secret: ""
+            #     key: password
+            #   deleteAfterDelivery: true
+            #   expungeDeleted: false
+            #   logger:
+            #     logPath: "/dev/stdout"
+            #   mailbox: inbox
+            #   idleTimeout: 60
+            #   inboxMethod: "imap"
+            #   clientSecret:
+            #     key: secret
+            #   pollInterval: 60
+            #   deliveryMethod: webhook
+            #   authToken: {}
+            #     # secret:
+            #     # key:
+
+            ## https://docs.gitlab.com/charts/charts/globals#ldap
+            ldap: 
+              
+              preventSignin: true
+              servers:
+                main:
+                  active_directory: true
+                  admin_group: CN=GitLab Admins,OU=Groups,DC=domain,DC=com
+                  allow_username_or_email_login: false
+                  base: ou=Users,dc=domain,dc=com
+                  bind_dn: CN=gitlab,OU=Service Accounts,DC=domain,DC=com
+                  encryption: plain
+                  group_base: ou=Groups,dc=domain,dc=com
+                  host: 10.254.0.4
+                  label: Active Directory
+                  lowercase_usernames: true
+                  password:
+                    key: password
+                    secret: gitlab-ldap-credential
+                  port: 389
+                  uid: sAMAccountName
+                  user_filter: (objectclass=user)
+                  verify_certificates: false
+              ## See documentation for complete example of a configured LDAP server
+
+            ## https://docs.gitlab.com/charts/charts/globals#kas-settings
+            gitlab_kas: {}
+              # secret:
+              # key:
+              # enabled:
+              # externalUrl:
+              # internalUrl:
+
+            ## https://docs.gitlab.com/charts/charts/globals#suggested-reviewers-settings
+            suggested_reviewers: {}
+              # secret:
+              # key:
+
+            ## https://docs.gitlab.com/charts/charts/globals#omniauth
+            omniauth:
+              enabled: true
+              allowSingleSignOn: ["openid_connect"]
+              blockAutoCreatedUsers: false
+              autoSignInWithProvider: openid_connect
+              autoLinkLdapUser: true
+              syncProfileFromProvider: ["openid_connect"]
+              syncProfileAttributes: ['email', 'name']
+              autoLinkUser: ["openid_connect"]
+              providers:
+                - secret: gitlab-omniauth-oidc
+                  key: provider
+
+            ## https://docs.gitlab.com/charts/charts/globals#configure-appconfig-settings
+            sentry:
+              enabled: false
+              dsn:
+              clientside_dsn:
+              environment:
+
+            gitlab_docs:
+              enabled: false
+              host: ""
+
+            # smartcard:
+            #   enabled: false
+            #   CASecret:
+            #   clientCertificateRequiredHost:
+            #   sanExtensions: false
+            #   requiredForGitAccess: false
+
+            # sidekiq:
+            #   routingRules: []
+
+            # Config that only applies to the defaults on initial install
+            initialDefaults:
+              signupEnabled: false
+          ## End of global.appConfig
+
+          oauth:
+            gitlab-pages: {}
+              # secret:
+              # appIdKey:
+              # appSecretKey:
+              # redirectUri:
+              # authScope:
+
+
+          ## https://docs.gitlab.com/charts/charts/gitlab/kas/
+          kas:
+            enabled: false
+          #   service:
+          #     apiExternalPort: 8153 # port for connections from the GitLab backend
+          #   tls:
+          #     enabled: false
+          #     verify: true
+          #     # secretName:
+          #     # caSecretName:
+
+          ## https://docs.gitlab.com/charts/charts/gitlab/spamcheck/
+          # spamcheck:
+            # enabled: false
+
+          ## https://docs.gitlab.com/charts/charts/globals#configure-gitlab-shell
+          # shell:
+          #   authToken: {}
+          #   # secret:
+          #   # key:
+          #   hostKeys: {}
+          #     # secret:
+          #   ## https://docs.gitlab.com/charts/charts/globals#tcp-proxy-protocol
+          #   tcp:
+          #     proxyProtocol: false
+
+
+
+          ## https://docs.gitlab.com/charts/charts/globals#configure-registry-settings
+          registry:
+            enabled: false
+            ingress:
+              enabled: false
+              tls:
+                enabled: false
+
+          pages:
+            enabled: true
+            accessControl: false
+            https: true
+            objectStore:
+              enabled: true
+              bucket: gitlab-pages
+              connection:
+                secret: gitlab-s3-storage-credentials
+                key: connection
+            namespaceInPath: true
+
+
+          ## GitLab Runner
+          ## Secret created according to https://docs.gitlab.com/charts/installation/secrets#gitlab-runner-secret
+          ## If allowing shared-secrets generation, this is OPTIONAL.
+          runner:
+            registrationToken: {}
+              # secret:
+
+          ## https://docs.gitlab.com/charts/charts/globals#outgoing-email
+          ## Outgoing email server settings
+          # smtp:
+          #   enabled: false
+          #   address: smtp.mailgun.org
+          #   port: 2525
+          #   user_name: ""
+          #   ## https://docs.gitlab.com/charts/installation/secrets#smtp-password
+          #   password:
+          #     secret: ""
+          #     key: password
+          #   # domain:
+          #   authentication: "plain"
+          #   starttls_auto: false
+          #   openssl_verify_mode: "peer"
+          #   pool: false
+
+          ## https://docs.gitlab.com/charts/charts/globals#outgoing-email
+          ## Email persona used in email sent by GitLab
+          # email:
+          #   from: ""
+          #   display_name: GitLab
+          #   reply_to: ""
+          #   subject_suffix: ""
+          #   smime:
+          #     enabled: false
+          #     secretName: ""
+          #     keyName: "tls.key"
+          #     certName: "tls.crt"
+
+
+
+
+
+
+
+          ## https://docs.gitlab.com/charts/charts/globals#service-accounts
+          serviceAccount:
+            enabled: true
+            create: true
+          # priorityClassName: system-cluster-critical
+        upgradeCheck:
+          enabled: false
+        certmanager:
+          installCRDs: false
+          install: false
+
+        ## https://docs.gitlab.com/charts/charts/nginx/
+        ## https://docs.gitlab.com/charts/architecture/decisions#nginx-ingress
+        ## Installation & configuration of charts/ingress-nginx:
+        nginx-ingress:
+          enabled: false
+        ## Installation & configuration of stable/prometheus
+        ## See requirements.yaml for current version
+        prometheus:
+          install: false
+        ## Configuration of Redis
+        redis:
+          install: false
+        postgresql:
+          install: false
+        registry:
+          enabled: false
+        shared-secrets:
+          enabled: true
+        gitlab-runner:
+          install: true #
+          gitlabUrl: http://gitlab-webservice-default.workflows-ingest:8080
+          replicas: 1
+          # serviceAccountName:
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+          runners:
+            config: |-
+              # https://docs.gitlab.com/runner/executors/kubernetes/index.html for more help   
+              [[runners]]
+                concurrent = 100 # A global setting for job concurrency that applies to all runner sections defined in this `config.toml` file
+                log_level = "info"
+                log_format = "json"
+                check_interval = 1
+                [runners.kubernetes]
+                  namespace = "gitlab-runners"
+                  image = "ubuntu:24.04"
+                  helper_image = "ubuntu:24.04"
+                  pull_policy = "if-not-present"
+                  poll_interval = 1
+                [runners.cache]
+                  Type = "s3"
+                  Path = "runner"
+                  Shared = true
+                  [runners.cache.s3]
+                    ServerAddress = ""
+                    BucketName = ""
+                    BucketLocation = "us-east-1"
+                    Insecure = true
+
+
+          cache:
+            secretName: gitlab-s3-storage-credentials
+
+        ## Installation & configuration of stable/grafana
+        ## See requirements.yaml for current version
+        ## Controlled by `global.grafana.enabled`
+        grafana:
+          enabled: false
+
+        ## Settings for individual sub-charts under GitLab
+        ## Note: Many of these settings are configurable via globals
+
+        gitlab:
+          webservice:
+            registry:
+              enabled: false
+          sidekiq:
+            registry:
+              enabled: false
+
+          ## https://docs.gitlab.com/charts/charts/gitlab/toolbox
+          toolbox:
+
+            registry:
+              enabled: false
+            backups:
+              cron:
+                enabled: true
+                schedule: "0 1 * * *"
+                # persistence:
+                #   enabled: true
+                #   storageClass: ".GITLAB_gitaly.storage_class"
+              objectStorage:
+                backend: s3
+                config:
+                  secret: gitlab-s3-storage-credentials
+                  key: connection
+            # In case of pod dying due to mem usage(by default task-runner uses memory to keep the temporary files) enable persistence
+            persistence:
+              enabled: false
+              # storageClass: " .GITLAB_gitaly.storage_class"
+
+            replicas: 1
+          ## https://docs.gitlab.com/charts/charts/gitlab/migrations
+          #   migrations:
+          #     enabled: false
+          ## https://docs.gitlab.com/charts/charts/gitlab/webservice
+            # webservice:
+            #   enabled: false
+          ## https://docs.gitlab.com/charts/charts/gitlab/sidekiq
+          #   sidekiq:
+          #     enabled: false
+          ## https://docs.gitlab.com/charts/charts/gitlab/gitaly
+          #   gitaly:
+          ## https://docs.gitlab.com/charts/charts/gitlab/gitlab-shell
+          #   gitlab-shell:
+          #     enabled: false
+          ## https://docs.gitlab.com/charts/charts/gitlab/gitlab-grafana
+          #   gitlab-grafana:
+          ## https://docs.gitlab.com/charts/charts/gitlab/gitlab-pages
+            gitlab-pages:
+          ## https://docs.gitlab.com/charts/charts/gitlab/kas
+          #   kas:
+          ## https://docs.gitlab.com/charts/charts/gitlab/praefect
+          #   praefect:
+
+
+        
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      backoff:
+        duration: 5s
+        factor: 1
+        maxDuration: 30s
+      limit: 50
+    syncOptions:
+    - CreateNamespace=false
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    - ApplyOutOfSyncOnly=true
+    - ServerSideApply=true
+    - Replace=false
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/databases-psql.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: psql-gitlab-main
+spec:
+  instances: 1
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ClusterImageCatalog
+    name: postgresql
+    major: 17
+  primaryUpdateStrategy: unsupervised
+  description: Used as the PostgreSQL database for Coder
+  bootstrap:
+    initdb:
+      database: gitlab
+      owner: app
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    size: 20Gi
+    storageClass: standard
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/databases-psql.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: psql-gitlab-praefect
+spec:
+  instances: 1
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ClusterImageCatalog
+    name: postgresql
+    major: 17
+  primaryUpdateStrategy: unsupervised
+  description: Used as the PostgreSQL database for Gitlab praefect
+  bootstrap:
+    initdb:
+      database: praefect
+      owner: app
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    size: 10Gi
+    storageClass: standard
+---
+# Source: gitlab-bespoke-pack/templates/gitlab/redis.yaml
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: Redis
+metadata:
+  name: redis-gitlab-main
+  annotations:
+    "argocd.argoproj.io/sync-wave": "0"
+spec:
+  podSecurityContext:
+    runAsUser: 1000
+    fsGroup: 1000
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v7.2.7
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 101m
+        memory: 128Mi
+      limits:
+        cpu: 101m
+        memory: 128Mi
+  redisExporter:
+    enabled: true
+    image: quay.io/opstree/redis-exporter:v1.44.0
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: standard
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

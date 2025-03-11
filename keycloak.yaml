@@ -1,0 +1,105 @@
+---
+# Source: keycloak/templates/argocd.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd-keycloak
+---
+# Source: keycloak/templates/argocd.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: core-keycloak
+---
+# Source: keycloak/templates/argocd.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keycloak
+  namespace: argocd-keycloak
+spec:
+  destination:
+    namespace: argocd-keycloak
+    server: https://kubernetes.default.svc
+  project: core-apps
+  ignoreDifferences:
+  - group: apps
+    kind: StatefulSet
+    jqPathExpressions:
+    - .spec.template.spec.volumeMounts[] | select(.name == "etc-ssl-certs")
+  - group: apps
+    kind: Deployment
+    jqPathExpressions:
+    - .spec.template.spec.containers[].volumeMounts[] | select(.name == "etc-ssl-certs")
+    - .spec.template.spec.volumes[] | select(.name == "etc-ssl-certs")
+  source:
+    targetRevision: "24.4.11"
+    repoURL: https://charts.bitnami.com/bitnami
+    chart: keycloak
+    helm:
+      values: |
+        global:
+          imageRegistry: registry.local
+          storageClass: standard
+        ingress:
+          enabled: true
+          ingressClassName: nginx
+          hostname: sso.domain.com
+          annotations:
+            kubernetes.io/tls-acme: "true"
+          hostnameStrict: true
+          tls: true
+        production: true
+
+        adminIngress:
+          enabled: true
+          ingressClassName: nginx
+          hostname: sso-console.domain.com
+          tls: true
+        networkPolicy:
+          enabled: false
+        tls:
+          enabled: false
+        adminRealm: master
+        proxyHeaders: forwarded
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+        keycloakConfigCli:
+          enabled: true
+        postgresql:
+          enabled: false
+        externalDatabase:
+          existingSecret: psql-keycloak-app
+          existingSecretHostKey: host
+          existingSecretPortKey: port
+          existingSecretUserKey: user
+          existingSecretDatabaseKey: dbname
+          existingSecretPasswordKey: password
+        logging:
+          output: json
+---
+# Source: keycloak/templates/databases-psql.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: psql-keycloak
+spec:
+  instances: 1
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ClusterImageCatalog
+    name: postgresql
+    major: 17
+  primaryUpdateStrategy: unsupervised
+  description: Used as the PostgreSQL database for Keycloak
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: app
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    size: 20Gi
+    storageClass: standard

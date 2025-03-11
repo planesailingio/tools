@@ -1,0 +1,99 @@
+---
+# Source: coder/templates/argocd-coder.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd-coder
+---
+# Source: coder/templates/argocd-coder.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: core-coder
+---
+# Source: coder/templates/argocd-coder.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab
+  namespace: argocd-coder
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  destination:
+    namespace: core-coder
+    server: https://kubernetes.default.svc
+  project: core-apps
+  ignoreDifferences:
+  - group: apps
+    kind: StatefulSet
+    jqPathExpressions:
+    - .spec.template.spec.volumeMounts[] | select(.name == "etc-ssl-certs")
+  - group: apps
+    kind: Deployment
+    jqPathExpressions:
+    - .spec.template.spec.containers[].volumeMounts[] | select(.name == "etc-ssl-certs")
+    - .spec.template.spec.volumes[] | select(.name == "etc-ssl-certs")
+  source:
+    targetRevision: "2.20.0"
+    repoURL: https://helm.coder.com/v2
+    chart: coder
+    helm:
+      values: |
+        coder: 
+          ingress:
+            enable: true
+            className: nginx
+            host: "coder.domain.com"
+            wildcardHost: "*.coder.domain.com"
+            annotations:
+              kubernetes.io/tls-acme: "true"
+            tls:
+              secretName: coder-tls
+              wildcardSecretName: wildcard-coder-tls
+              enable: true
+          service:
+            type: ClusterIP
+          envFrom:
+          - secretRef:
+              name: coder-oidc-sso-creds
+              optional: false
+          - secretRef:
+              name: coder-oidc-git-creds
+              optional: false
+          env:
+          - name: CODER_ACCESS_URL
+            value: https://coder.domain.com
+          - name: CODER_WILDCARD_ACCESS_URL
+            value: https://*.coder.domain.com
+          - name: CODER_PG_CONNECTION_URL
+            valueFrom:
+              secretKeyRef:
+                name: psql-coder-app
+                key: uri
+          image:
+            repo: coder/coder
+---
+# Source: coder/templates/databases-psql.yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: psql-coder
+spec:
+  instances: 1
+  imageCatalogRef:
+    apiGroup: postgresql.cnpg.io
+    kind: ClusterImageCatalog
+    name: postgresql
+    major: 17
+  primaryUpdateStrategy: unsupervised
+  description: Used as the PostgreSQL database for Coder
+  bootstrap:
+    initdb:
+      database: coder
+      owner: app
+  monitoring:
+    enablePodMonitor: true
+  storage:
+    size: 20Gi
+    storageClass: standard
