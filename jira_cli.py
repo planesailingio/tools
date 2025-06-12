@@ -7,6 +7,9 @@ import argcomplete
 from argcomplete.completers import Completer
 from jira import JIRA
 from jira.exceptions import JIRAError
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+import pytz
 
 
 def get_jira_client():
@@ -97,12 +100,71 @@ def log_time(args):
         sys.exit(1)
 
 
+def stats(args):
+    jira = get_jira_client()
+    user = jira.current_user()
+    now = datetime.now(pytz.utc)
+
+    def get_timeframe(name):
+        if name == "this_week":
+            start = now - timedelta(days=now.weekday())
+        elif name == "last_week":
+            start = now - timedelta(days=now.weekday() + 7)
+            end = start + timedelta(days=7)
+            return start, end
+        elif name == "this_month":
+            start = now.replace(day=1)
+        elif name == "last_month":
+            start = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
+            end = start + relativedelta(months=1)
+            return start, end
+        else:
+            return now, now
+        return start, now
+
+    def format_duration(seconds):
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        return f"{hours}h {minutes}m"
+
+    def sum_worklogs(start, end):
+        total = 0
+        jql = f"(assignee = {user} OR reporter = {user}) AND updated >= -90d"
+        issues = jira.search_issues(jql, maxResults=100)
+
+        for issue in issues:
+            try:
+                worklogs = jira.worklogs(issue.key)
+                for wl in worklogs:
+                    if wl.author.name != user:
+                        continue
+                    started = datetime.strptime(wl.started, "%Y-%m-%dT%H:%M:%S.000%z")
+                    if start <= started < end:
+                        total += wl.timeSpentSeconds
+            except Exception:
+                continue
+
+        return total
+
+    timeframes = {
+        "This week": get_timeframe("this_week"),
+        "Last week": get_timeframe("last_week"),
+        "This month": get_timeframe("this_month"),
+        "Last month": get_timeframe("last_month"),
+    }
+
+    print("JIRA Worklog Stats:\n")
+    for label, (start, end) in timeframes.items():
+        total_seconds = sum_worklogs(start, end)
+        print(f"{label}: {format_duration(total_seconds)}")
+
+
 def main():
     parser = argparse.ArgumentParser(prog="jira-cli", description="Manage JIRA issues via CLI")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.required = True
 
-    # create subcommand
+    # create
     create_parser = subparsers.add_parser("create", help="Create a new JIRA issue")
     create_parser.add_argument("--project", required=True, help="Project key (e.g., ABC)")
     create_parser.add_argument("--summary", required=True, help="Issue summary")
@@ -112,19 +174,23 @@ def main():
     create_parser.add_argument("--link-type", help="Link type (e.g., blocks, relates to)")
     create_parser.set_defaults(func=create_issue)
 
-    # start subcommand
+    # start
     start_parser = subparsers.add_parser("start", help="Transition issue to In Progress")
     ticket_arg = start_parser.add_argument("--ticket", required=True, help="JIRA issue key")
     ticket_arg.completer = ticket_completer
     start_parser.set_defaults(func=start_issue)
 
-    # logtime subcommand
+    # logtime
     logtime_parser = subparsers.add_parser("logtime", help="Log time to a JIRA issue")
     ticket_arg2 = logtime_parser.add_argument("--ticket", required=True, help="JIRA issue key")
     ticket_arg2.completer = ticket_completer
     logtime_parser.add_argument("--time", required=True, help="Time spent (e.g., 1h 30m)")
     logtime_parser.add_argument("--comment", help="Worklog comment")
     logtime_parser.set_defaults(func=log_time)
+
+    # stats
+    stats_parser = subparsers.add_parser("stats", help="Show logged time stats")
+    stats_parser.set_defaults(func=stats)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args()
@@ -133,10 +199,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# autoload -U bashcompinit
-# bashcompinit
-# eval "$(register-python-argcomplete ./jira_cli.py)"
-
-
-
